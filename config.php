@@ -28,6 +28,7 @@ define('G5_HTTPS_DOMAIN', '');
 
 // 그누보드 디버그바 설정입니다, 실제 서버운영시 false 로 설정해 주세요.
 define('G5_DEBUG', false);
+define('G5_COLLECT_QUERY', false);
 
 // Set Database table default engine is Database default_storage_engine, If you want to use MyISAM or InnoDB, change to MyISAM or InnoDB.
 // DB에 테이블 생성 시 테이블의 기본 스토리지 엔진을 설정할 수 있습니다.
@@ -233,9 +234,5 @@ define('G5_VISIT_BROWSCAP_USE', false);
 */
 define('G5_IP_DISPLAY', '\\1.♡.\\3.\\4');
 
-if ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS']=='on') || 
-    (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO']==='https')) {   //https 통신일때 daum 주소 js
-    define('G5_POSTCODE_JS', '<script src="https://spi.maps.daum.net/imap/map_js_init/postcode.v2.js"></script>');
-} else {  //http 통신일때 daum 주소 js
-    define('G5_POSTCODE_JS', '<script src="http://dmaps.daum.net/map_js_init/postcode.v2.js"></script>');
-}
+// KAKAO 우편번호 서비스 CDN
+define('G5_POSTCODE_JS', '<script src="//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js" async></script>');

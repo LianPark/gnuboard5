@@ -269,12 +269,12 @@ function url_auto_link($str)
 
 
 // url에 http:// 를 붙인다
-function set_http($url)
+function set_http($url, $protocol="http://")
 {
     if (!trim($url)) return;
 
     if (!preg_match("/^(http|https|ftp|telnet|news|mms)\:\/\//i", $url))
-        $url = "http://" . $url;
+        $url = $protocol. $url;
 
     return $url;
 }
@@ -295,6 +295,30 @@ function get_filesize($size)
     return $size;
 }
 
+// 파일다운로드 링크 생성시 nonce 키 추가, 7200은 2시간동안 유효
+function download_file_nonce_key($bo_table, $wr_id, $timeoutSeconds=7200)
+{
+    $secret = get_token_encryption_key(sha1($bo_table.session_id().$wr_id));
+    $salt = get_random_token_string(10);
+    $maxTime = G5_SERVER_TIME + $timeoutSeconds;
+    $nonce = $salt . '|' . $maxTime . '|' . sha1($salt . $secret . $maxTime);
+
+    return $nonce;
+}
+
+// 파일다운로드시 nonce key를 체크한다.
+function download_file_nonce_is_valid($nonce, $bo_table, $wr_id)
+{
+    if (! is_string($nonce)) return false;
+    $secret = get_token_encryption_key(sha1($bo_table.session_id().$wr_id));
+    $a = explode('|', $nonce);
+    if (count($a) !== 3) return false;
+    list($salt, $maxTime, $hash) = $a;
+    if (sha1($salt . $secret . $maxTime) !== $hash) return false;
+    if (G5_SERVER_TIME > (int) $maxTime) return false;
+
+    return true;
+}
 
 // 게시글에 첨부된 파일을 얻는다. (배열로 반환)
 function get_file($bo_table, $wr_id)
@@ -304,11 +328,12 @@ function get_file($bo_table, $wr_id)
     $file['count'] = 0;
     $sql = " select * from {$g5['board_file_table']} where bo_table = '$bo_table' and wr_id = '$wr_id' order by bf_no ";
     $result = sql_query($sql);
+    $nonce = download_file_nonce_key($bo_table, $wr_id);
     while ($row = sql_fetch_array($result))
     {
         $no = (int) $row['bf_no'];
         $bf_content = $row['bf_content'] ? html_purifier($row['bf_content']) : '';
-        $file[$no]['href'] = G5_BBS_URL."/download.php?bo_table=$bo_table&amp;wr_id=$wr_id&amp;no=$no" . $qstr;
+        $file[$no]['href'] = G5_BBS_URL."/download.php?bo_table=$bo_table&amp;wr_id=$wr_id&amp;no=$no&amp;nonce=$nonce" . $qstr;
         $file[$no]['download'] = $row['bf_download'];
         // 4.00.11 - 파일 path 추가
         $file[$no]['path'] = G5_DATA_URL.'/file/'.$bo_table;
@@ -579,6 +604,8 @@ function check_html_link_nofollow($type=''){
 // Open  : HTML Purifier is open-source and highly customizable
 function html_purifier($html)
 {
+    global $is_admin, $write;
+
     $f = file(G5_PLUGIN_PATH.'/htmlpurifier/safeiframe.txt');
     $domains = array();
     foreach($f as $domain){
@@ -589,9 +616,9 @@ function html_purifier($html)
                 array_push($domains, $domain);
         }
     }
-    // 내 도메인도 추가
-    array_push($domains, $_SERVER['HTTP_HOST'].'/');
-    $safeiframe = implode('|', $domains);
+    // 글쓴이가 관리자인 경우에만 현재 사이트 도메인을 허용
+    if (isset($write['mb_id']) && $write['mb_id'] && is_admin($write['mb_id'])) array_push($domains, $_SERVER['HTTP_HOST'].'/');
+    $safeiframe = implode('|', run_replace('html_purifier_safeiframes', $domains, $html));
 
     include_once(G5_PLUGIN_PATH.'/htmlpurifier/HTMLPurifier.standalone.php');
     include_once(G5_PLUGIN_PATH.'/htmlpurifier/extend.video.php');
@@ -1596,7 +1623,7 @@ function sql_query($sql, $error=G5_DISPLAY_SQL_ERROR, $link=null)
 
     $is_debug = get_permission_debug_show();
     
-    $start_time = $is_debug ? get_microtime() : 0;
+    $start_time = ($is_debug || G5_COLLECT_QUERY) ? get_microtime() : 0;
 
     if(function_exists('mysqli_query') && G5_MYSQLI_USE) {
         if ($error) {
@@ -1616,18 +1643,68 @@ function sql_query($sql, $error=G5_DISPLAY_SQL_ERROR, $link=null)
         }
     }
 
-    $end_time = $is_debug ? get_microtime() : 0;
+    $end_time = ($is_debug || G5_COLLECT_QUERY) ? get_microtime() : 0;
 
-    if($result && $is_debug) {
-        // 여기에 실행한 sql문을 화면에 표시하는 로직 넣기
+    $error = null;
+    if ($is_debug || G5_COLLECT_QUERY) {
+        if(function_exists('mysqli_error') && G5_MYSQLI_USE) {
+            $error = array(
+                'error_code' => mysqli_errno($g5['connect_db']),
+                'error_message' => mysqli_error($g5['connect_db']),
+            );
+        } else {
+            $error = array(
+                'error_code' => mysql_errno($g5['connect_db']),
+                'error_message' => mysql_error($g5['connect_db']),
+            );
+        }
+
+        $stack = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+        $source = array();
+        $found = false;
+
+        foreach ($stack as $index => $trace) {
+            if ($trace['function'] === 'sql_query') {
+                $found = true;
+            }
+            if (isset($stack[$index + 1]) && $stack[$index + 1]['function'] === 'sql_fetch') {
+                continue;
+            }
+
+            if ($found) {
+                $trace['file'] = str_replace($_SERVER['DOCUMENT_ROOT'], '', $trace['file']);
+                $source['file'] = $trace['file'];
+                $source['line'] = $trace['line'];
+
+                $parent = (isset($stack[$index + 1])) ? $stack[$index + 1] : array();
+                if (isset($parent['function'])) {
+                    if (in_array($trace['function'], array('sql_query', 'sql_fetch')) && (isset($parent['function']) && !in_array($parent['function'], array('sql_fetch', 'include', 'include_once', 'require', 'require_once')))) {
+                        if (isset($parent['class']) && $parent['class']) {
+                            $source['class'] = $parent['class'];
+                            $source['function'] = $parent['function'];
+                            $source['type'] = $parent['type'];
+                        } else {
+                            $source['function'] = $parent['function'];
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
         $g5_debug['sql'][] = array(
             'sql' => $sql,
+            'result' => $result,
+            'success' => !!$result,
+            'source' => $source,
+            'error_code' => $error['error_code'],
+            'error_message' => $error['error_message'],
             'start_time' => $start_time,
             'end_time' => $end_time,
-            );
+        );
     }
 
-    run_event('sql_query_after', $result, $sql, $start_time, $end_time);
+    run_event('sql_query_after', $result, $sql, $start_time, $end_time, $error);
 
     return $result;
 }
