@@ -554,9 +554,18 @@ function admin_check_xss_params($params)
 
         if (is_array($value)) {
             admin_check_xss_params($value);
-        } else if ((preg_match('/<\s?[^\>]*\/?\s?>/i', $value) && (preg_match('/script.*?\/script/ius', $value) || preg_match('/[onload|onerror]=.*/ius', $value))) || preg_match('/^(?=.*token\()(?=.*xmlhttprequest\()(?=.*send\().*$/im', $value) || (preg_match('/[onload|onerror|focus]=.*/ius', $value) && preg_match('/(eval|expression|exec|prompt)(\s*)\((.*)\)/ius', $value))) {
+        } else if (
+            (preg_match('/<\s?[^\>]*\/?\s?>/i', $value) && (preg_match('/script.*?\/script/ius', $value) || preg_match('/on[a-z]+=*/ius', $value))) || preg_match('/^(?=.*token\()(?=.*xmlhttprequest\()(?=.*send\().*$/im', $value) || 
+            (preg_match('/(on[a-z]+|focus)=.*/ius', $value) && preg_match('/(eval|atob|fetch|expression|exec|prompt)(\s*)\((.*)\)/ius', $value))) {
             alert('요청 쿼리에 잘못된 스크립트문장이 있습니다.\\nXSS 공격일수도 있습니다.', G5_URL);
             die();
+        } else if (preg_match('/atob\s*\(\s*[\'"]?([a-zA-Z0-9+\/=]+)[\'"]?\s*\)/ius', $value, $matches)) {
+            $decoded = base64_decode($matches[1], true);
+            if ($decoded && preg_match('/(eval|fetch|script|alert|settimeout|setinterval)/ius', $decoded)) {
+                // error_log("Base64 XSS 시도 감지: key=$key, decoded=$decoded, IP=" . $_SERVER['REMOTE_ADDR']);
+                alert('Base64로 인코딩된 위험한 스크립트가 발견되었습니다.', G5_URL);
+                die();
+            }
         }
     }
 
@@ -617,13 +626,12 @@ if (!$member['mb_id']) {
     }
 }
 
-// 관리자의 아이피, 브라우저와 다르다면 세션을 끊고 관리자에게 메일을 보낸다.
-$admin_key = md5($member['mb_datetime'] . get_real_client_ip() . $_SERVER['HTTP_USER_AGENT']);
-if (get_session('ss_mb_key') !== $admin_key) {
-
+// 관리자의 클라이언트를 검증하여 일치하지 않으면 세션을 끊고 관리자에게 메일을 보낸다.
+if (!verify_mb_key($member)) {
     session_destroy();
 
     include_once G5_LIB_PATH . '/mailer.lib.php';
+
     // 메일 알림
     mailer($member['mb_nick'], $member['mb_email'], $member['mb_email'], 'XSS 공격 알림', $_SERVER['REMOTE_ADDR'] . ' 아이피로 XSS 공격이 있었습니다.<br><br>관리자 권한을 탈취하려는 접근이므로 주의하시기 바랍니다.<br><br>해당 아이피는 차단하시고 의심되는 게시물이 있는지 확인하시기 바랍니다.' . G5_URL, 0);
 

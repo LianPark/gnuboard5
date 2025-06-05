@@ -58,10 +58,14 @@ if($act == "buy")
             }
 
             // 주문 상품의 재고체크
-            $sql = " select ct_qty, it_name, ct_option, io_id, io_type
+            // 동일 상품 옵션이 레코드에 있는 경우 재고를 제대로 체크하지 못하는 오류가 있음
+            // $sql = " select ct_qty, it_name, ct_option, io_id, io_type from {$g5['g5_shop_cart_table']} where od_id = '$tmp_cart_id' and it_id = '$it_id' ";
+
+            $sql = " select sum(ct_qty) as ct_qty, it_name, ct_option, io_id, io_type
                         from {$g5['g5_shop_cart_table']}
                         where od_id = '$tmp_cart_id'
-                          and it_id = '$it_id' ";
+                          and it_id = '$it_id' GROUP BY od_id, it_id, it_name, ct_option, io_id, io_type ";
+
             $result = sql_query($sql);
 
             for($k=0; $row=sql_fetch_array($result); $k++) {
@@ -73,10 +77,11 @@ if($act == "buy")
                             and ct_stock_use = 0
                             and ct_status = '쇼핑'
                             and ct_select = '1' ";
+
                 $sum = sql_fetch($sql);
                 // $sum['cnt'] 가 null 일때 재고 반영이 제대로 안되는 오류 수정 (그누위즈님,210614)
                 // $sum_qty = $sum['cnt'];
-                $sum_qty = is_int($sum['cnt']) ? $sum['cnt'] : 0;
+                $sum_qty = isset($sum['cnt']) ? (int) $sum['cnt'] : 0;
 
                 // 재고 구함
                 $ct_qty = $row['ct_qty'];
@@ -143,7 +148,12 @@ else // 장바구니에 담기
     $post_io_ids = (isset($_POST['io_id']) && is_array($_POST['io_id'])) ? $_POST['io_id'] : array();
     $post_io_types = (isset($_POST['io_type']) && is_array($_POST['io_type'])) ? $_POST['io_type'] : array();
     $post_ct_qtys = (isset($_POST['ct_qty']) && is_array($_POST['ct_qty'])) ? $_POST['ct_qty'] : array();
-
+    
+    if ($count && $sw_direct) {
+        // 바로구매에 있던 장바구니 자료를 지운다.
+        sql_query(" delete from {$g5['g5_shop_cart_table']} where od_id = '$tmp_cart_id' and ct_direct = 1 ", false);
+    }
+    
     for($i=0; $i<$count; $i++) {
         // 보관함의 상품을 담을 때 체크되지 않은 상품 건너뜀
         if($act == 'multi' && ! (isset($post_chk_it_id[$i]) && $post_chk_it_id[$i]))
@@ -174,10 +184,6 @@ else // 장바구니에 담기
         $it = get_shop_item($it_id, false);
         if(!$it['it_id'])
             alert('상품정보가 존재하지 않습니다.');
-
-        // 바로구매에 있던 장바구니 자료를 지운다.
-        if($i == 0 && $sw_direct)
-            sql_query(" delete from {$g5['g5_shop_cart_table']} where od_id = '$tmp_cart_id' and ct_direct = 1 ", false);
 
         // 최소, 최대 수량 체크
         if($it['it_buy_min_qty'] || $it['it_buy_max_qty']) {

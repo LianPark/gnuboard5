@@ -31,6 +31,9 @@ $wr_subject = '';
 if (isset($_POST['wr_subject'])) {
     $wr_subject = substr(trim($_POST['wr_subject']),0,255);
     $wr_subject = preg_replace("#[\\\]+$#", "", $wr_subject);
+    if (function_exists('normalize_utf8_string')) {
+        $wr_subject = normalize_utf8_string($wr_subject);
+    }
 }
 if ($wr_subject == '') {
     $msg[] = '<strong>제목</strong>을 입력하세요.';
@@ -40,6 +43,9 @@ $wr_content = '';
 if (isset($_POST['wr_content'])) {
     $wr_content = substr(trim($_POST['wr_content']),0,65536);
     $wr_content = preg_replace("#[\\\]+$#", "", $wr_content);
+    if (function_exists('normalize_utf8_string')) {
+        $wr_content = normalize_utf8_string($wr_content);
+    }
 }
 if ($wr_content == '') {
     $msg[] = '<strong>내용</strong>을 입력하세요.';
@@ -252,12 +258,14 @@ if ($w == '' || $w == 'r') {
         $wr_num = $write['wr_num'];
         $wr_reply = $reply;
     } else {
-        $wr_num = get_next_num($write_table);
+        // get_next_num 함수는 mysql 지연시 중복이 될수 있는 문제로 더 이상 사용하지 않습니다.
+        // $wr_num = get_next_num($write_table);
+        $wr_num = 0;
         $wr_reply = '';
     }
-
+    
     $sql = " insert into $write_table
-                set wr_num = '$wr_num',
+                set wr_num = " . ($w == 'r' ? "'$wr_num'" : "(SELECT IFNULL(MIN(wr_num) - 1, -1) FROM $write_table as sq) ") . ",
                      wr_reply = '$wr_reply',
                      wr_comment = 0,
                      ca_name = '$ca_name',
@@ -676,8 +684,14 @@ sql_query(" delete from {$g5['autosave_table']} where as_uid = '{$uid}' ");
 //------------------------------------------------------------------------------
 
 // 비밀글이라면 세션에 비밀글의 아이디를 저장한다. 자신의 글은 다시 비밀번호를 묻지 않기 위함
-if ($secret)
+if ($secret) {
+    if (!(isset($wr_num) && $wr_num)) {
+        $write = get_write($write_table, $wr_id, true);
+        $wr_num = $write['wr_num'];
+    }
+
     set_session("ss_secret_{$bo_table}_{$wr_num}", TRUE);
+}
 
 // 메일발송 사용 (수정글은 발송하지 않음)
 if (!($w == 'u' || $w == 'cu') && $config['cf_email_use'] && $board['bo_use_email']) {

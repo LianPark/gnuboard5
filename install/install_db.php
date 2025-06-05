@@ -10,6 +10,7 @@ header('Pragma: no-cache'); // HTTP/1.0
 @header('X-Robots-Tag: noindex');
 
 $g5_path['path'] = '..';
+include_once('install_common.php');
 include_once('../config.php');
 include_once('../lib/common.lib.php');
 include_once('./install.function.php');    // 인스톨 과정 함수 모음
@@ -268,6 +269,18 @@ if ($g5_install || $is_install === false) {
 
         $bo_skin = ($tmp_bo_table[$i] === 'gallery') ? 'gallery' : 'basic';
 
+        if (in_array($tmp_bo_table[$i], array('gallery', 'qa'))) {
+            $read_bo_point = -1;
+            $write_bo_point = 5;
+            $comment_bo_point = 1;
+            $download_bo_point = -20;
+        } else {
+            $read_bo_point = $read_point;
+            $write_bo_point = $write_point;
+            $comment_bo_point = $comment_point;
+            $download_bo_point = $download_point;
+        }
+
         $sql = " insert into `{$table_prefix}board`
                     set bo_table = '$tmp_bo_table[$i]',
                         gr_id = '$tmp_gr_id',
@@ -285,10 +298,10 @@ if ($g5_install || $is_install === false) {
                         bo_count_delete     = '1',
                         bo_upload_level     = '1',
                         bo_download_level   = '1',
-                        bo_read_point       = '-1',
-                        bo_write_point      = '5',
-                        bo_comment_point    = '1',
-                        bo_download_point   = '-20',
+                        bo_read_point       = '$read_bo_point',
+                        bo_write_point      = '$write_bo_point',
+                        bo_comment_point    = '$comment_bo_point',
+                        bo_download_point   = '$download_bo_point',
                         bo_use_category     = '0',
                         bo_category_list    = '',
                         bo_use_sideview     = '0',

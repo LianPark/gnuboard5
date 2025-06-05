@@ -29,6 +29,10 @@ for ($i=0; $i<$ext_cnt; $i++) {
 }
 //==========================================================================================================================
 
+// Cloudflare 사용시 REMOTE_ADDR 에 사용자 IP 적용과 https 사용 여부
+if (isset($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+    include_once('cloudflare.check.php');    // cloudflare 의 ip 대역인지 체크
+}
 
 function g5_path()
 {
@@ -58,7 +62,7 @@ include_once($g5_path['path'].'/config.php');   // 설정 파일
 unset($g5_path);
 
 // IIS 에서 SERVER_ADDR 서버변수가 없다면
-if(! isset($_SERVER['SERVER_ADDR'])) {
+if (!isset($_SERVER['SERVER_ADDR'])) {
     $_SERVER['SERVER_ADDR'] = isset($_SERVER['LOCAL_ADDR']) ? $_SERVER['LOCAL_ADDR'] : '';
 }
 
@@ -221,7 +225,12 @@ ini_set("session.gc_maxlifetime", 10800); // session data의 garbage collection 
 ini_set("session.gc_probability", 1); // session.gc_probability는 session.gc_divisor와 연계하여 gc(쓰레기 수거) 루틴의 시작 확률을 관리합니다. 기본값은 1입니다. 자세한 내용은 session.gc_divisor를 참고하십시오.
 ini_set("session.gc_divisor", 100); // session.gc_divisor는 session.gc_probability와 결합하여 각 세션 초기화 시에 gc(쓰레기 수거) 프로세스를 시작할 확률을 정의합니다. 확률은 gc_probability/gc_divisor를 사용하여 계산합니다. 즉, 1/100은 각 요청시에 GC 프로세스를 시작할 확률이 1%입니다. session.gc_divisor의 기본값은 100입니다.
 
-session_set_cookie_params(0, '/');
+if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] != 'off') {
+    session_set_cookie_params(0, '/', null, true, true);
+} else {
+    session_set_cookie_params(0, '/', null, false, true);
+}
+
 ini_set("session.cookie_domain", G5_COOKIE_DOMAIN);
 
 function chrome_domain_session_name(){
@@ -366,8 +375,7 @@ if( $config['cf_cert_use'] || (defined('G5_YOUNGCART_VER') && G5_YOUNGCART_VER) 
                     || preg_match('/(iPhone|iPod|iPad).*AppleWebKit.*Safari/i', $_SERVER['HTTP_USER_AGENT'])
                     || preg_match('~MSIE|Internet Explorer~i', $_SERVER['HTTP_USER_AGENT'])
                     || preg_match('~Trident/7.0(; Touch)?; rv:11.0~',$_SERVER['HTTP_USER_AGENT'])
-                    || !(isset($_SERVER['HTTPS']) && $_SERVER['HTTPS']=='on')
-                    || !(isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == "https")){
+                    || !(isset($_SERVER['HTTPS']) && $_SERVER['HTTPS']=='on')) {
                     return $res;
                 }
             }
@@ -377,7 +385,7 @@ if( $config['cf_cert_use'] || (defined('G5_YOUNGCART_VER') && G5_YOUNGCART_VER) 
             $cookie_session_name = method_exists('XenoPostToForm', 'g5_session_name') ? XenoPostToForm::g5_session_name() : 'PHPSESSID'; 
             foreach ($headers as $header) {
                 if (!preg_match('~^Set-Cookie: '.$cookie_session_name.'=~', $header)) continue;
-                $header = preg_replace('~; secure(; HttpOnly)?$~', '', $header) . '; secure; SameSite=None';
+                $header = preg_replace('~(; secure; HttpOnly)?$~', '; secure; HttpOnly; SameSite=None', $header);
                 header($header, false);
                 $g5['session_cookie_samesite'] = 'none';
                 break;
@@ -417,7 +425,7 @@ if (isset($_REQUEST['sca']))  {
 
 if (isset($_REQUEST['sfl']))  {
     $sfl = trim($_REQUEST['sfl']);
-    $sfl = preg_replace("/[\<\>\'\"\\\'\\\"\%\=\(\)\/\^\*\s]/", "", $sfl);
+    $sfl = preg_replace("/[\<\>\'\"\\\'\\\"\%\=\(\)\/\^\*\s\#]/", "", $sfl);
     if ($sfl)
         $qstr .= '&amp;sfl=' . urlencode($sfl); // search field (검색 필드)
 } else {
@@ -480,6 +488,7 @@ if (isset($_REQUEST['w'])) {
     $w = '';
 }
 
+/** @var int $wr_id 게시판 글의 ID */
 if (isset($_REQUEST['wr_id'])) {
     $wr_id = (int)$_REQUEST['wr_id'];
 } else {
@@ -495,14 +504,15 @@ if (isset($_REQUEST['bo_table']) && ! is_array($_REQUEST['bo_table'])) {
 
 // URL ENCODING
 if (isset($_REQUEST['url'])) {
-    $url = strip_tags(trim($_REQUEST['url']));
+    $url = preg_replace('|[^a-z0-9-~+_.?#=!&;,/:%@$\|*\'()\[\]\\x80-\\xff]|i', '', trim($_REQUEST['url']));
     $urlencode = urlencode($url);
 } else {
     $url = '';
     $urlencode = urlencode($_SERVER['REQUEST_URI']);
     if (G5_DOMAIN) {
         $p = @parse_url(G5_DOMAIN);
-        $urlencode = G5_DOMAIN.urldecode(preg_replace("/^".urlencode($p['path'])."/", "", $urlencode));
+        $p['path'] = isset($p['path']) ? $p['path'] : '/';
+        $urlencode = rtrim(G5_DOMAIN, '%2F').'%2F'.ltrim(urldecode(preg_replace("/^".urlencode($p['path'])."/", "", $urlencode)), '%2F');
     }
 }
 
@@ -514,7 +524,6 @@ if (isset($_REQUEST['gr_id'])) {
     $gr_id = '';
 }
 //===================================
-
 
 // 자동로그인 부분에서 첫로그인에 포인트 부여하던것을 로그인중일때로 변경하면서 코드도 대폭 수정하였습니다.
 if (isset($_SESSION['ss_mb_id']) && $_SESSION['ss_mb_id']) { // 로그인중이라면
@@ -575,57 +584,8 @@ if (isset($_SESSION['ss_mb_id']) && $_SESSION['ss_mb_id']) { // 로그인중이�
     // 자동로그인 end ---------------------------------------
 }
 
-
-$write = array();
-$write_table = '';
-if ($bo_table) {
-    $board = get_board_db($bo_table, true);
-    if (isset($board['bo_table']) && $board['bo_table']) {
-        set_cookie("ck_bo_table", $board['bo_table'], 86400 * 1);
-        $gr_id = $board['gr_id'];
-        $write_table = $g5['write_prefix'] . $bo_table; // 게시판 테이블 전체이름
-
-        if (isset($wr_id) && $wr_id) {
-            $write = get_write($write_table, $wr_id);
-        } else if (isset($wr_seo_title) && $wr_seo_title) {
-            $write = get_content_by_field($write_table, 'bbs', 'wr_seo_title', generate_seo_title($wr_seo_title));
-            if( isset($write['wr_id']) ){
-                $wr_id = $write['wr_id'];
-            }
-        }
-    }
-    
-    // 게시판에서 
-    if (isset($board['bo_select_editor']) && $board['bo_select_editor']){
-        $config['cf_editor'] = $board['bo_select_editor'];
-    }
-}
-
-if ($gr_id && !is_array($gr_id)) {
-    $group = get_group($gr_id, true);
-}
-
-if ($config['cf_editor']) {
-    define('G5_EDITOR_LIB', G5_EDITOR_PATH."/{$config['cf_editor']}/editor.lib.php");
-} else {
-    define('G5_EDITOR_LIB', G5_LIB_PATH."/editor.lib.php");
-}
-
-// 회원, 비회원 구분
-$is_member = $is_guest = false;
-$is_admin = '';
-if (isset($member['mb_id']) && $member['mb_id']) {
-    $is_member = true;
-    $is_admin = is_admin($member['mb_id']);
-    $member['mb_dir'] = substr($member['mb_id'],0,2);
-} else {
-    $is_guest = true;
-    $member['mb_id'] = '';
-    $member['mb_level'] = 1; // 비회원의 경우 회원레벨을 가장 낮게 설정
-}
-
-
-if ($is_admin != 'super') {
+// 최고관리자가 아니면 IP를 체크한다.
+if (!(isset($member['mb_id']) && $config['cf_admin'] === $member['mb_id'])) {
     // 접근가능 IP
     $cf_possible_ip = trim($config['cf_possible_ip']);
     if ($cf_possible_ip) {
@@ -664,6 +624,56 @@ if ($is_admin != 'super') {
     }
 }
 
+/** @var array $write 글 데이터 */
+$write = array();
+/** @var string $write_table 게시판 테이블 전체이름 */
+$write_table = '';
+if ($bo_table) {
+    $board = get_board_db($bo_table, true);
+    if (isset($board['bo_table']) && $board['bo_table']) {
+        set_cookie("ck_bo_table", $board['bo_table'], 86400 * 1);
+        $gr_id = $board['gr_id'];
+        // 게시판 테이블 전체이름
+        $write_table = $g5['write_prefix'] . $bo_table; 
+
+        if (isset($wr_id) && $wr_id) {
+            $write = get_write($write_table, $wr_id);
+        } else if (isset($wr_seo_title) && $wr_seo_title) {
+            $write = get_content_by_field($write_table, 'bbs', 'wr_seo_title', generate_seo_title($wr_seo_title));
+            if (isset($write['wr_id'])) {
+                $wr_id = (int) $write['wr_id'];
+            }
+        }
+    }
+
+    // 게시판에서 사용하는 에디터를 설정
+    if (isset($board['bo_select_editor']) && $board['bo_select_editor']) {
+        $config['cf_editor'] = $board['bo_select_editor'];
+    }
+}
+
+if ($gr_id && !is_array($gr_id)) {
+    $group = get_group($gr_id, true);
+}
+
+if ($config['cf_editor']) {
+    define('G5_EDITOR_LIB', G5_EDITOR_PATH."/{$config['cf_editor']}/editor.lib.php");
+} else {
+    define('G5_EDITOR_LIB', G5_LIB_PATH."/editor.lib.php");
+}
+
+// 회원, 비회원 구분
+$is_member = $is_guest = false;
+$is_admin = '';
+if (isset($member['mb_id']) && $member['mb_id']) {
+    $is_member = true;
+    $is_admin = is_admin($member['mb_id']);
+    $member['mb_dir'] = substr($member['mb_id'],0,2);
+} else {
+    $is_guest = true;
+    $member['mb_id'] = '';
+    $member['mb_level'] = 1; // 비회원의 경우 회원레벨을 가장 낮게 설정
+}
 
 // 테마경로
 if(defined('_THEME_PREVIEW_') && _THEME_PREVIEW_ === true)

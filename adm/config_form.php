@@ -8,7 +8,9 @@ if ($is_admin != 'super') {
     alert('최고관리자만 접근 가능합니다.');
 }
 
-$copy_config = get_config(true);
+// https://github.com/gnuboard/gnuboard5/issues/296 이슈처리
+$sql = " select * from {$g5['config_table']} limit 1";
+$config = sql_fetch($sql);
 
 if (!isset($config['cf_add_script'])) {
     sql_query(
@@ -407,6 +409,19 @@ if (!isset($config['cf_cert_kg_mid'])) {
             ADD COLUMN `cf_cert_kg_mid` VARCHAR(255) NOT NULL DEFAULT '' AFTER `cf_cert_kg_cd`; ";
     sql_query($sql, false);
 }
+if (!isset($config['cf_cert_use_seed'])) {
+    $sql = "ALTER TABLE `{$g5['config_table']}` 
+            ADD COLUMN `cf_cert_use_seed` TINYINT(4) NOT NULL DEFAULT '1' AFTER `cf_cert_kg_mid`; ";
+    sql_query($sql, false);
+}
+if (!isset($config['cf_cert_kcp_enckey'])) {
+    $sql = "ALTER TABLE `{$g5['config_table']}` 
+            ADD COLUMN `cf_cert_kcp_enckey` VARCHAR(100) NOT NULL DEFAULT '' AFTER `cf_cert_kcp_cd`; ";
+    sql_query($sql, false);
+    
+    $config['cf_cert_kcp_enckey'] = '';
+}
+
 if (!$config['cf_faq_skin']) {
     $config['cf_faq_skin'] = "basic";
 }
@@ -699,14 +714,14 @@ if ($config['cf_sms_use'] && $config['cf_icode_id'] && $config['cf_icode_pw']) {
                         <th scope="row"><label for="cf_analytics">방문자분석 스크립트</label></th>
                         <td colspan="3">
                             <?php echo help('방문자분석 스크립트 코드를 입력합니다. 예) 구글 애널리틱스<br>관리자 페이지에서는 이 코드를 사용하지 않습니다.'); ?>
-                            <textarea name="cf_analytics" id="cf_analytics"><?php echo get_text($copy_config['cf_analytics']); ?></textarea>
+                            <textarea name="cf_analytics" id="cf_analytics"><?php echo get_text($config['cf_analytics']); ?></textarea>
                         </td>
                     </tr>
                     <tr>
                         <th scope="row"><label for="cf_add_meta">추가 메타태그</label></th>
                         <td colspan="3">
                             <?php echo help('추가로 사용하실 meta 태그를 입력합니다.<br>관리자 페이지에서는 이 코드를 사용하지 않습니다.'); ?>
-                            <textarea name="cf_add_meta" id="cf_add_meta"><?php echo get_text($copy_config['cf_add_meta']); ?></textarea>
+                            <textarea name="cf_add_meta" id="cf_add_meta"><?php echo get_text($config['cf_add_meta']); ?></textarea>
                         </td>
                     </tr>
                     <tr>
@@ -1002,6 +1017,16 @@ if ($config['cf_sms_use'] && $config['cf_icode_id'] && $config['cf_icode_pw']) {
                         </td>
                     </tr>
                     <tr>
+                        <th scope="row" class="cf_cert_service"><label for="cf_cert_use_seed">통합인증 암호화 적용</label></th>
+                        <td class="cf_cert_service">
+                            <?php echo help('KG이니시스 통합인증서비스에 암호화를 적용합니다. 만일 글자가 깨지는 문제가 발생하면 사용안함으로 적용해 주세요.') ?>
+                            <select name="cf_cert_use_seed" id="cf_cert_use_seed">
+                                <?php echo option_selected("0", $config['cf_cert_use_seed'], "사용안함"); ?>
+                                <?php echo option_selected("1", $config['cf_cert_use_seed'], "사용함"); ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
                         <th scope="row" class="cf_cert_service"><label for="cf_cert_hp">휴대폰 본인확인</label></th>
                         <td class="cf_cert_service">
                             <select name="cf_cert_hp" id="cf_cert_hp">
@@ -1047,6 +1072,13 @@ if ($config['cf_sms_use'] && $config['cf_icode_id'] && $config['cf_icode_pw']) {
                             <?php echo help('SM으로 시작하는 5자리 사이트 코드중 뒤의 3자리만 입력해 주십시오.<br>서비스에 가입되어 있지 않다면, 본인확인 서비스 신청페이지에서 서비스 신청 후 사이트코드를 발급 받으실 수 있습니다.') ?>
                             <span class="sitecode">SM</span>
                             <input type="text" name="cf_cert_kcp_cd" value="<?php echo get_sanitize_input($config['cf_cert_kcp_cd']); ?>" id="cf_cert_kcp_cd" class="frm_input" size="3"> <a href="http://sir.kr/main/service/p_cert.php" target="_blank" class="btn_frmline">NHN KCP 휴대폰 본인확인 서비스 신청페이지</a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row" class="cf_cert_service"><label for="cf_cert_kcp_enckey">NHN KCP 가맹점 인증키</label></th>
+                        <td class="cf_cert_service">
+                            <?php echo help('(선택사항, 추후 NHN_KCP 상점관리자에서 인증키 발급 메뉴 오픈일정 이후부터 적용되는 내용입니다.)<br>NHN_KCP 상점관리자 > 기술관리센터 > 인증센터 > 가맹점 인증키관리 에서 인증키 발급 후에 인증키 정보를 입력') ?>
+                            <input type="text" name="cf_cert_kcp_enckey" value="<?php echo get_sanitize_input($config['cf_cert_kcp_enckey']); ?>" id="cf_cert_kcp_enckey" class="frm_input" maxlength="100" size="40"> <a href="https://partner.kcp.co.kr" target="_blank" class="btn_frmline">NHN KCP 상점관리자</a>
                         </td>
                     </tr>
                     <tr>
@@ -1392,7 +1424,7 @@ if ($config['cf_sms_use'] && $config['cf_icode_id'] && $config['cf_icode_pw']) {
                         <th scope="row"><label for="cf_add_script">추가 script, css</label></th>
                         <td>
                             <?php echo help('HTML의 &lt;/HEAD&gt; 태그위로 추가될 JavaScript와 css 코드를 설정합니다.<br>관리자 페이지에서는 이 코드를 사용하지 않습니다.') ?>
-                            <textarea name="cf_add_script" id="cf_add_script"><?php echo get_text($copy_config['cf_add_script']); ?></textarea>
+                            <textarea name="cf_add_script" id="cf_add_script"><?php echo get_text($config['cf_add_script']); ?></textarea>
                         </td>
                     </tr>
                 </tbody>
@@ -1525,7 +1557,17 @@ if ($config['cf_sms_use'] && $config['cf_icode_id'] && $config['cf_icode_pw']) {
             </table>
         </div>
     </section>
-
+    
+    <div id="config_captcha_wrap" style="display:none">
+        <h2>캡챠입력</h2>
+        <?php
+        require_once G5_CAPTCHA_PATH . '/captcha.lib.php';
+        $captcha_html = captcha_html();
+        $captcha_js   = chk_captcha_js();
+        echo $captcha_html;
+        ?>
+    </div>
+    
     <div class="btn_fixed_top btn_confirm">
         <input type="submit" value="확인" class="btn_submit btn" accesskey="s">
     </div>
@@ -1597,10 +1639,61 @@ if ($config['cf_sms_use'] && $config['cf_icode_id'] && $config['cf_icode_pw']) {
         });
     });
 
+    // 각 요소의 초기값 저장
+    var initialValues = {
+        cf_admin: $('#cf_admin').val(),
+        cf_analytics: $('#cf_analytics').val(),
+        cf_add_meta: $('#cf_add_meta').val(),
+        cf_add_script: $('#cf_add_script').val()
+    };
+
+    function check_config_captcha_open() {
+        var isChanged = false;
+
+        // 현재 값이 있는 경우에만 변경 여부 체크
+        if ($('#cf_admin').val()) {
+            isChanged = isChanged || $('#cf_admin').val() !== initialValues.cf_admin;
+        }
+        if ($('#cf_analytics').val()) {
+            isChanged = isChanged || $('#cf_analytics').val() !== initialValues.cf_analytics;
+        }
+        if ($('#cf_add_meta').val()) {
+            isChanged = isChanged || $('#cf_add_meta').val() !== initialValues.cf_add_meta;
+        }
+        if ($('#cf_add_script').val()) {
+            isChanged = isChanged || $('#cf_add_script').val() !== initialValues.cf_add_script;
+        }
+        
+        var $wrap = $("#config_captcha_wrap"),
+            tooptipid = "mp_captcha_tooltip",
+            $p_text = $("<p>", {id:tooptipid, style:"font-size:0.95em;letter-spacing:-0.1em"}).html("중요정보를 수정할 경우 캡챠를 입력해야 합니다."),
+            $children = $wrap.children(':first'),
+            is_invisible_recaptcha = $("#captcha").hasClass("invisible_recaptcha");
+
+        if(isChanged){
+            $wrap.show();
+            if(! is_invisible_recaptcha) {
+                $wrap.css("margin-top","1em");
+                if(! $("#"+tooptipid).length){ $children.after($p_text) }
+            }
+        } else {
+            $wrap.hide();
+            if($("#"+tooptipid).length && ! is_invisible_recaptcha){ $children.next("#"+tooptipid).remove(); }
+        }
+        
+        return isChanged;
+    }
+        
     function fconfigform_submit(f) {
         var current_user_ip = "<?php echo $_SERVER['REMOTE_ADDR']; ?>";
         var cf_intercept_ip_val = f.cf_intercept_ip.value;
-
+        
+        if (check_config_captcha_open()){
+            jQuery("html, body").scrollTop(jQuery("#config_captcha_wrap").offset().top);
+            
+            <?php echo $captcha_js; // 캡챠 사용시 자바스크립트에서 입력된 캡챠를 검사함 ?>
+        }
+        
         if (cf_intercept_ip_val && current_user_ip) {
             var cf_intercept_ips = cf_intercept_ip_val.split("\n");
 
@@ -1621,6 +1714,22 @@ if ($config['cf_sms_use'] && $config['cf_icode_id'] && $config['cf_icode_pw']) {
         f.action = "./config_form_update.php";
         return true;
     }
+    
+    jQuery(function($){
+        $("#captcha_key").prop('required', false).removeAttr("required").removeClass("required");
+        
+        // 최고관리자 변경시
+        $(document).on('change', '#cf_admin', check_config_captcha_open);
+
+        // 방문자분석 스크립트 변경시
+        $(document).on('input', '#cf_analytics', check_config_captcha_open);
+        
+        // 추가 메타태그 변경시
+        $(document).on('input', '#cf_add_meta', check_config_captcha_open);
+        
+        // 추가 script, css 변경시
+        $(document).on('input', '#cf_add_script', check_config_captcha_open);
+    });
 </script>
 
 <?php
@@ -1652,16 +1761,19 @@ if ($config['cf_cert_use']) {
 
     // kcp일 때
     if ($config['cf_cert_hp'] == 'kcp') {
+        
+        $bin_path = ((int)$config['cf_cert_use'] === 2 && !$config['cf_cert_kcp_enckey']) ? 'bin_old' : 'bin';
+        
         if (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
             if (PHP_INT_MAX == 2147483647) { // 32-bit
-                $exe = G5_KCPCERT_PATH . '/bin/ct_cli';
+                $exe = G5_KCPCERT_PATH . '/'.$bin_path.'/ct_cli';
             } else {
-                $exe = G5_KCPCERT_PATH . '/bin/ct_cli_x64';
+                $exe = G5_KCPCERT_PATH . '/'.$bin_path.'/ct_cli_x64';
             }
         } else {
-            $exe = G5_KCPCERT_PATH . '/bin/ct_cli_exe.exe';
+            $exe = G5_KCPCERT_PATH . '/'.$bin_path.'/ct_cli_exe.exe';
         }
-
+        
         echo module_exec_check($exe, 'ct_cli');
     }
 
